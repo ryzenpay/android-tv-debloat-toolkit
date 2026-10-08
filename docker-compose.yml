@@ -1,0 +1,29 @@
+services:
+  toolkit:
+    build: .
+    image: android-tv-toolkit
+    container_name: android-tv-toolkit
+    # The container is an ADB *client*: it opens outbound connections to the TV on the LAN and,
+    # for the "Discovered on your network" panel, listens for mDNS multicast. Bridge NAT drops the
+    # multicast half, so share the host's network stack. On Docker Desktop this needs host
+    # networking support (4.34+); otherwise use the bridge fallback described in the README.
+    network_mode: host
+    environment:
+      # Reach the page from a Windows browser at http://127.0.0.1:8000/. Measured on WSL2 mirrored
+      # mode: the container's 127.0.0.1 is reachable from Windows; ::1 and the mirrored LAN address
+      # are not, so the name "localhost" (which resolves to ::1 first) just hangs. IPv4 only on
+      # purpose — binding '::' works too but makes Flask print a clickable http://[::1]:8000 line
+      # that nothing on the Windows side can open.
+      # Set this to 127.0.0.1 to keep the page loopback-only; it can enable/disable packages on your TV.
+      TOOLKIT_HOST: "0.0.0.0"
+      TOOLKIT_PORT: "8000"
+    volumes:
+      # adb's keypair — the identity Pair & Connect registers with the TV. Lose it and you have to
+      # pair again with a fresh code from the Wireless debugging screen.
+      - adb-keys:/home/toolkit/.android
+      - toolkit-data:/data
+    restart: unless-stopped
+
+volumes:
+  adb-keys:
+  toolkit-data:

@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Android TV Toolkit</title>
+<style>
+  :root {
+    --bg:#10131a; --panel:#171c26; --line:#262d3b; --text:#e6e9ef; --muted:#8b94a7;
+    --accent:#4f8cff; --ok:#35c47f; --warn:#e5a53c; --bad:#ef5a6f;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:16px 24px;
+    border-bottom:1px solid var(--line); background:var(--panel); }
+  h1 { font-size:17px; margin:0; font-weight:600; }
+  .pill { padding:4px 12px; border-radius:999px; font-size:13px; background:rgba(239,90,111,.14);
+    color:var(--bad); border:1px solid rgba(239,90,111,.35); }
+  .pill.on { background:rgba(53,196,127,.14); color:var(--ok); border-color:rgba(53,196,127,.35); }
+  .adb { margin-left:auto; color:var(--muted); font-size:12px; }
+  main { max-width:1100px; margin:0 auto; padding:22px; display:grid; gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px 20px; }
+  .card h2 { font-size:15px; margin:0 0 4px; font-weight:600; }
+  .hint { margin:0 0 14px; color:var(--muted); font-size:13px; }
+  .row { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+  label.f { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  input[type=text], input[type=search], input[type=file] { background:#0d1017; color:var(--text);
+    border:1px solid var(--line); border-radius:7px; padding:8px 10px; font:inherit; font-size:14px; }
+  input:focus { outline:1px solid var(--accent); }
+  button { background:var(--accent); color:#fff; border:0; border-radius:7px; padding:9px 16px;
+    font:inherit; font-size:14px; cursor:pointer; }
+  button:hover:not(:disabled) { filter:brightness(1.12); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+  button.ghost.on { border-color:var(--accent); color:var(--accent); }
+  button.warn { background:var(--bad); }
+  button.mini { padding:5px 11px; font-size:12px; }
+  details { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+  summary { cursor:pointer; color:var(--muted); font-size:13px; }
+  .paths { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); margin-bottom:16px; }
+  .path { border:1px solid var(--line); border-radius:8px; padding:12px 14px; font-size:13px; color:var(--muted); }
+  .path b { color:var(--text); display:block; margin-bottom:4px; font-size:13.5px; }
+  .dev { display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--line);
+    border-radius:8px; margin-bottom:8px; font-size:13.5px; }
+  .dev .addr { color:var(--muted); font-family:ui-monospace,Consolas,monospace; }
+  .tag { font-size:10px; text-transform:uppercase; letter-spacing:.4px; padding:1px 7px; border-radius:4px;
+    background:rgba(79,140,255,.16); color:var(--accent); }
+  .tag.pair { background:rgba(229,165,60,.16); color:var(--warn); }
+  .apps { max-height:460px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px; margin:12px 0; }
+  .app { display:flex; gap:10px; align-items:flex-start; padding:7px 8px; border-radius:6px;
+    border-bottom:1px solid #1d2432; }
+  .app:hover { background:#1d2432; }
+  .app input { margin-top:4px; }
+  .app .body { flex:1; min-width:0; }
+  .app .nm { font-size:13.5px; font-weight:550; }
+  .app .pk { color:var(--muted); font-size:11.5px; font-family:ui-monospace,Consolas,monospace; }
+  .app .why { color:var(--muted); font-size:12px; margin-top:2px; }
+  .app.off { opacity:.55; }
+  .chip { font-size:10px; padding:1px 7px; border-radius:4px; margin-left:6px; text-transform:uppercase;
+    letter-spacing:.4px; white-space:nowrap; }
+  .v-bloat { background:rgba(239,90,111,.18); color:var(--bad); }
+  .v-careful { background:rgba(229,165,60,.18); color:var(--warn); }
+  .v-keep { background:rgba(53,196,127,.18); color:var(--ok); }
+  .v-undocumented { background:rgba(139,148,167,.16); color:var(--muted); }
+  .r-core, .r-overlay { background:rgba(139,148,167,.16); color:var(--muted); }
+  .r-visible, .r-user, .r-caution { background:rgba(79,140,255,.16); color:var(--accent); }
+  .r-unknown { background:rgba(139,148,167,.16); color:var(--muted); }
+  .st-disabled { background:rgba(53,196,127,.15); color:var(--ok); }
+  .legend { color:var(--muted); font-size:12px; }
+  #log { font:12.5px/1.6 ui-monospace,Consolas,monospace; white-space:pre-wrap; max-height:280px; overflow:auto; }
+  #log div { border-bottom:1px solid #1d2432; padding:3px 0; }
+  #log .ok { color:var(--ok); } #log .bad { color:var(--bad); }
+  #log .muted { color:var(--muted); } #log .note { color:var(--warn); }
+  .tools { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); }
+  .locked { opacity:.5; pointer-events:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Android TV Toolkit</h1>
+  <span class="pill" id="status">Not connected</span>
+  <span id="device"></span>
+  <span class="adb" id="adb"></span>
+</header>
+
+<main>
+  <section class="card" id="connection"></section>
+
+  <section class="card" id="discover-card">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <h2>Discovered on your network</h2>
+        <p class="hint">Advertised by the TV once Wireless debugging is on. Rescans every few seconds while disconnected.</p>
+      </div>
+      <button class="ghost mini" id="rescan">Rescan</button>
+    </div>
+    <div id="devices"></div>
+  </section>
+
+  <section class="card" id="apps-card">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <h2>Apps on this device</h2>
+        <p class="hint" id="apps-hint">Read from the device — nothing here is a fixed list.</p>
+      </div>
+      <button class="ghost mini" id="reload-inv">Rescan packages</button>
+    </div>
+    <div class="row">
+      <label class="f"><span>Filter</span><input type="search" id="q" placeholder="name or package"></label>
+      <button class="ghost mini on" data-filter="bloat">Documented bloat</button>
+      <button class="ghost mini" data-filter="careful">Careful</button>
+      <button class="ghost mini" data-filter="undocumented">Undocumented</button>
+      <button class="ghost mini" data-filter="keep">Keep</button>
+      <button class="ghost mini" data-filter="all">All</button>
+      <button class="ghost mini" id="toggle-off">Show disabled</button>
+      <button class="mini" id="disable-btn">Disable selected</button>
+      <button class="ghost mini" id="enable-btn">Re-enable selected</button>
+    </div>
+    <div class="apps" id="applist"></div>
+    <p class="legend">Chips: verdict from the toolkit's notes (bloat / careful / keep / undocumented) and why the
+      risk class was derived — uid, partition, system role, installer, running process. Disabling is per-user and
+      reversible with Re-enable. Core and overlay packages are refused unless you tick the override.</p>
+    <label class="f" style="flex-direction:row;align-items:center;gap:8px">
+      <input type="checkbox" id="force-core"> Allow core / overlay packages (override)</label>
+  </section>
+
+  <div class="tools">
+    <section class="card" id="apk-card">
+      <h2>Install APK</h2>
+      <p class="hint">Pushed to /sdcard, installed with <code>pm install -r</code>, then removed from storage.</p>
+      <div class="row">
+        <input type="file" id="apk" accept=".apk">
+        <button id="install-btn">Install</button>
+      </div>
+    </section>
+
+    <section class="card" id="launcher-card">
+      <h2>Disable Google TV Launcher</h2>
+      <p class="hint">Only after a replacement launcher (e.g. FLauncher) is installed and confirmed working.</p>
+      <button class="warn" id="launcher-btn">Disable launcher</button>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+  "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let catalog = { last_ip:"", last_port:"5555", last_pair_port:"" };
+let apps = [];
+let filter = "bloat";
+let showDisabled = false;
+let connected = false;
+let state = { target:"" };
+let forcePair = false;
+
+function log(message, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = new Date().toLocaleTimeString() + "  " + message;
+  $("#log").prepend(line);
+}
+
+async function api(path, body) {
+  const init = body instanceof FormData
+    ? { method:"POST", body }
+    : { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body || {}) };
+  const response = await fetch(path, init);
+  return response.json().catch(() => ({ ok:false, message:"Malformed response." }));
+}
+
+function field(id, labelText, value, placeholder, size) {
+  return `<label class="f"><span>${esc(labelText)}</span><input type="text" id="${id}"
+    value="${esc(value || "")}" placeholder="${esc(placeholder || "")}" size="${size || 14}"></label>`;
+}
+
+function renderConnection() {
+  const card = $("#connection");
+  if (connected) {
+    const d = state.device || {};
+    card.innerHTML = `<h2>Connected</h2>
+      <p class="hint">${esc(d.model || "Device")}${d.android ? " · Android " + esc(d.android) : ""} · ${esc(state.target)}</p>
+      <div class="row"><button class="warn" id="disconnect-btn">Disconnect</button></div>`;
+    $("#disconnect-btn").onclick = doDisconnect;
+    return;
+  }
+  card.innerHTML = `<h2>Connect to TV</h2>
+    <p class="hint">The setting is named differently depending on the TV generation — use whichever your TV shows.</p>
+    <div class="paths">
+      <div class="path"><b>Android 11+, Google TV, Chromecast, Onn</b>
+        Settings → Device Preferences → Developer options → <b>Wireless debugging</b>. There is no switch called
+        "ADB debugging" on these builds. Turn it on, open <b>Pair device with pairing code</b>, then use the
+        pairing form below with the IP, pairing port and 6-digit code from that screen.</div>
+      <div class="path"><b>Older Android TV builds</b>
+        Settings → Device Preferences → Developer options → <b>ADB debugging</b> ON, then connect below with the
+        TV's IP address (port 5555). TV and PC must be on the same network.</div>
+    </div>
+    <div class="row">
+      ${field("ip","IP address",catalog.last_ip,"192.168.1.",16)}
+      ${field("port","Port",catalog.last_port || "5555","5555",7)}
+      <button id="connect-btn">Connect</button>
+    </div>
+    <details id="pair-details" ${forcePair ? "open" : ""}>
+      <summary>Pair with a code (Android 11+ / Google TV / Chromecast)</summary>
+      <div class="row">
+        ${field("p_ip","TV IP",catalog.last_ip,"192.168.1.",16)}
+        ${field("p_port","Pairing port",catalog.last_pair_port,"37000",7)}
+        ${field("p_code","Pairing code","","123456",8)}
+        ${field("d_port","Debug port",catalog.last_port || "5555","5555",7)}
+        <button id="pair-btn" class="ghost">Pair &amp; Connect</button>
+      </div>
+    </details>`;
+  $("#connect-btn").onclick = () => doConnect($("#ip").value.trim(), $("#port").value.trim());
+  $("#pair-btn").onclick = () => doPair($("#p_ip").value.trim(), $("#p_port").value.trim(),
+    $("#p_code").value.trim(), $("#d_port").value.trim());
+  ["ip","port"].forEach((id) => $("#" + id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("#connect-btn").click();
+  }));
+  if (forcePair) { forcePair = false; $("#p_code").focus(); }
+}
+
+function renderApps() {
+  const query = $("#q").value.trim().toLowerCase();
+  const rows = apps.filter((a) => {
+    if (!showDisabled && a.state === "disabled") return false;
+    if (filter !== "all" && a.verdict !== filter) return false;
+    if (query && !(a.label + a.package + a.apk).toLowerCase().includes(query)) return false;
+    return true;
+  });
+  $("#applist").innerHTML = rows.length ? rows.map((a) => `
+    <div class="app ${a.state === "disabled" ? "off" : ""}">
+      <input type="checkbox" data-pkg="${esc(a.package)}" ${a.state === "disabled" ? "data-off=1" : ""}>
+      <div class="body">
+        <div class="nm">${esc(a.label)}
+          <span class="chip v-${a.verdict}">${a.verdict}</span>
+          <span class="chip r-${a.risk}">${a.risk}</span>
+          ${a.state === "disabled" ? '<span class="chip st-disabled">disabled</span>' : ""}
+        </div>
+        <div class="pk">${esc(a.package)} · ${esc(a.partition)}${a.running ? " · running" : ""}</div>
+        <div class="why">${esc(a.note || a.reasons.join(" · "))}</div>
+      </div>
+    </div>`).join("")
+    : '<p class="hint">Nothing matches this filter.</p>';
+
+  const c = apps.length;
+  const bloat = apps.filter((a) => a.verdict === "bloat" && a.state === "enabled").length;
+  const off = apps.filter((a) => a.state === "disabled").length;
+  $("#apps-hint").textContent =
+    `${c} packages read from the device · ${bloat} documented bloat still enabled · ${off} already disabled`;
+}
+
+function selected(off) {
+  return [...document.querySelectorAll("#applist input[type=checkbox]")]
+    .filter((box) => box.checked && Boolean(box.dataset.off) === off)
+    .map((box) => box.dataset.pkg);
+}
+
+async function loadInventory() {
+  const data = await (await fetch("/api/inventory")).json();
+  if (!data.ok) { log("✗ " + data.message, "bad"); return; }
+  apps = data.apps;
+  renderApps();
+  log(`Read ${data.counts.total} packages from ${data.device.model || state.target} — `
+    + `${data.counts.bloat} documented bloat still on, ${data.counts.disabled} disabled.`, "muted");
+}
+
+async function refresh() {
+  state = await (await fetch("/api/state")).json();
+  connected = state.connected;
+  const pill = $("#status");
+  pill.textContent = connected ? "Connected — " + state.target : "Not connected";
+  pill.classList.toggle("on", connected);
+  $("#adb").textContent = "adb: " + state.adb;
+  const d = state.device || {};
+  $("#device").textContent = connected && d.model ? `${d.model}${d.android ? " · Android " + d.android : ""}` : "";
+  $("#discover-card").style.display = connected ? "none" : "";
+  $("#apps-card").classList.toggle("locked", !connected);
+  $("#apk-card").classList.toggle("locked", !connected);
+  $("#launcher-card").classList.toggle("locked", !connected);
+  renderConnection();
+  if (connected && !apps.length) await loadInventory();
+}
+
+async function doConnect(ip, port) {
+  if (!ip) { log("Enter an IP address or pick a discovered device.", "bad"); return; }
+  log(`Connecting to ${ip}:${port} …`, "muted");
+  const data = await api("/api/connect", { ip, port });
+  log((data.ok ? "✓ " : "✗ ") + data.message, data.ok ? "ok" : "bad");
+  if (data.hint) { log("→ " + data.hint, "note"); forcePair = true; }
+  await refresh();
+}
+
+async function doPair(ip, pairPort, code, debugPort) {
+  if (!code) { log("Enter the 6-digit pairing code shown on the TV.", "bad"); return; }
+  log(`Pairing with ${ip}:${pairPort} …`, "muted");
+  const data = await api("/api/pair", { ip, pair_port: pairPort, code, debug_port: debugPort });
+  log((data.ok ? "✓ " : "✗ ") + data.message, data.ok ? "ok" : "bad");
+  await refresh();
+}
+
+async function doDisconnect() {
+  const data = await api("/api/disconnect", {});
+  log("✓ " + data.message, "ok");
+  apps = [];
+  $("#applist").innerHTML = "";
+  await refresh();
+}
+
+async function apply(path, packages, verb) {
+  if (!packages.length) { log("Nothing selected.", "bad"); return; }
+  const body = { packages };
+  if (path === "/api/debloat" && $("#force-core").checked) body.confirm_core = true;
+  if (path === "/api/debloat" && !confirm(`Disable ${packages.length} package(s) for user 0?\n`
+      + "Reversible with Re-enable, but apps that depend on them may stop working until then.")) return;
+  const data = await api(path, body);
+  (data.results || []).forEach((r) => {
+    const name = r.label && r.label !== r.package ? r.label : r.package;
+    log((r.ok ? "✓ " : "✗ ") + name + " — " + r.detail, r.ok ? "ok" : "bad");
+  });
+  log(data.message, data.ok ? "ok" : "bad");
+  await loadInventory();
+}
+
+$("#rescan").addEventListener("click", scan);
+$("#reload-inv").addEventListener("click", loadInventory);
+$("#q").addEventListener("input", renderApps);
+$("#toggle-off").addEventListener("click", () => {
+  showDisabled = !showDisabled;
+  $("#toggle-off").classList.toggle("on", showDisabled);
+  renderApps();
+});
+$("#disable-btn").addEventListener("click", () => apply("/api/debloat", selected(false), "disable"));
+$("#enable-btn").addEventListener("click", () => apply("/api/restore", selected(true), "enable"));
+
+document.addEventListener("click", (event) => {
+  const chip = event.target.dataset.filter;
+  if (chip) {
+    filter = chip;
+    document.querySelectorAll("[data-filter]").forEach((b) => b.classList.toggle("on", b === event.target));
+    renderApps();
+  }
+  const dev = event.target.dataset.dev;
+  if (dev) {
+    const [ip, port] = dev.split(":");
+    if (event.target.dataset.pair === "1") {
+      forcePair = true;
+      renderConnection();
+      $("#p_ip").value = ip;
+      $("#p_code").focus();
+      log(`Endpoint ${dev} needs a pairing code — enter the code shown on the TV.`, "note");
+    } else {
+      doConnect(ip, port);
+    }
+  }
+});
+
+$("#install-btn").addEventListener("click", async () => {
+  const input = $("#apk");
+  if (!input.files.length) { log("No APK selected.", "bad"); return; }
+  const form = new FormData();
+  form.append("file", input.files[0]);
+  const button = $("#install-btn");
+  button.disabled = true;
+  log("Installing " + input.files[0].name + " …", "muted");
+  const data = await api("/api/install", form);
+  log((data.ok ? "✓ " : "✗ ") + data.message, data.ok ? "ok" : "bad");
+  button.disabled = false;
+});
+
+$("#launcher-btn").addEventListener("click", async () => {
+  if (!confirm("Disable the Google TV Launcher? Only after a replacement launcher is confirmed working.")) return;
+  const data = await api("/api/launcher/disable", {});
+  log((data.ok ? "✓ " : "✗ ") + "Launcher: " + data.message, data.ok ? "ok" : "bad");
+});
+
+async function scan() {
+  if (connected) return;
+  const devices = await (await fetch("/api/discover")).json().catch(() => ({ services:[], attached:[] }));
+  const rows = [];
+  for (const d of devices.attached || []) {
+    rows.push(`<div class="dev"><span><b>Attached</b></span><span class="addr">${esc(d.address)}</span>
+      <span class="tag">${esc(d.status)}</span></div>`);
+  }
+  for (const s of devices.services || []) {
+    rows.push(`<div class="dev"><span><b>${esc(s.name)}</b></span><span class="addr">${esc(s.address)}</span>
+      <span class="tag ${s.pairable ? "pair" : ""}">${s.pairable ? "needs pairing" : "connectable"}</span>
+      <button class="ghost mini" data-dev="${esc(s.address)}" data-pair="${s.pairable ? 1 : 0}">
+        ${s.pairable ? "Use for pairing" : "Connect"}</button></div>`);
+  }
+  $("#devices").innerHTML = rows.length ? rows.join("")
+    : '<p class="hint">Nothing found yet. Enable Wireless debugging on the TV — it advertises itself once on.</p>';
+}
+
+(async function start() {
+  catalog = await (await fetch("/api/catalog")).json();
+  await refresh();
+  await scan();
+  setInterval(scan, 6000);
+})();
+</script>
+</body>
+</html>
