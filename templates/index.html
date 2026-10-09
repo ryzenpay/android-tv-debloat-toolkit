@@ -22,7 +22,8 @@
     <div class="row" style="justify-content:space-between">
       <div>
         <h2>Discovered on your network</h2>
-        <p class="hint">Advertised by the TV once Wireless debugging is on. Rescans every few seconds while disconnected.</p>
+        <p class="hint">One row per TV, whatever it advertises. Click a row to fill the address fields above.
+          Rescans every few seconds while disconnected.</p>
       </div>
       <button class="ghost mini" id="rescan"><span class="lbl">Rescan</span></button>
     </div>
@@ -37,12 +38,10 @@
       </div>
       <div class="row">
         <button class="ghost mini" id="dev-refresh"><span class="lbl">Refresh</span></button>
-        <button class="ghost mini" id="shot-btn"><span class="lbl">Screenshot</span></button>
         <button class="warn mini" id="reboot-btn"><span class="lbl">Reboot</span></button>
       </div>
     </div>
     <div class="kv" id="kv"></div>
-    <div class="shot-wrap"><img class="shot" alt="TV screen"></div>
     <details>
       <summary>System log (last lines of logcat)</summary>
       <div class="row" style="margin-top:8px">
@@ -61,17 +60,23 @@
       </div>
       <button class="ghost mini" id="reload-inv"><span class="lbl">Rescan packages</span></button>
     </div>
-    <div class="row">
-      <label class="f"><span>Filter</span><input type="search" id="q" placeholder="name or package"></label>
-      <button class="ghost mini on" data-filter="bloat">Documented bloat</button>
-      <button class="ghost mini" data-filter="careful">Careful</button>
-      <button class="ghost mini" data-filter="undocumented">Undocumented</button>
-      <button class="ghost mini" data-filter="keep">Keep</button>
-      <button class="ghost mini" data-filter="disabled">Disabled</button>
-      <button class="ghost mini" data-filter="all">All</button>
-      <button class="mini" id="disable-btn"><span class="lbl">Disable selected</span></button>
-      <button class="ghost mini" id="enable-btn"><span class="lbl">Re-enable selected</span></button>
-      <button class="ghost mini" id="enable-all-btn"><span class="lbl">Re-enable all disabled</span></button>
+    <div class="apptools">
+      <div class="seg" role="group" aria-label="Filter packages">
+        <input type="search" id="q" placeholder="Search name or package">
+        <button class="on f-bloat" data-filter="bloat">Documented bloat<span class="n"></span></button>
+        <button class="f-careful" data-filter="careful">Careful<span class="n"></span></button>
+        <button class="f-undocumented" data-filter="undocumented">Undocumented<span class="n"></span></button>
+        <button class="f-keep" data-filter="keep">Keep<span class="n"></span></button>
+        <button class="f-disabled" data-filter="disabled">Disabled<span class="n"></span></button>
+        <button class="f-all" data-filter="all">All<span class="n"></span></button>
+      </div>
+      <div class="sel">
+        <label class="pick"><input type="checkbox" id="sel-all"> Select all visible</label>
+        <span class="count" id="sel-count">nothing shown</span>
+        <button id="disable-btn"><span class="lbl">Disable selected</span></button>
+        <button class="ghost" id="enable-btn"><span class="lbl">Re-enable selected</span></button>
+        <button class="ghost" id="enable-all-btn"><span class="lbl">Re-enable all disabled</span></button>
+      </div>
     </div>
     <div class="apps" id="applist"></div>
     <p class="legend">Chips: verdict from the toolkit's notes (bloat / careful / keep / undocumented) and why the
@@ -89,29 +94,50 @@
       <h2>Remote control</h2>
       <p class="hint">Injected with <code>input keyevent</code> — useful when the TV is mid-bootloop or you
         disabled the launcher and need to get out.</p>
-      <div class="pad">
-        <span></span><button data-key="up"><span class="lbl">▲</span></button><span></span>
-        <button data-key="left"><span class="lbl">◀</span></button><button data-key="ok"><span class="lbl">OK</span></button><button data-key="right"><span class="lbl">▶</span></button>
-        <span></span><button data-key="down"><span class="lbl">▼</span></button><span></span>
+      <button type="button" class="shot-wrap" data-shot-open
+        title="Open the TV screen full screen with the remote beside it">
+        <img class="shot" alt="TV screen">
+        <span class="shot-hint">TV screen — click to open full screen</span>
+      </button>
+      <div class="remote" id="remote">
+        <div class="rhead">
+          <button class="ghost mini" data-shot-refresh title="Refresh the picture on the left">
+            <span class="lbl"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" fill="none"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+              <path d="M13.2 8a5.2 5.2 0 1 1-1.62-3.76"/><path d="M13.5 1.9v2.9h-2.9"/></svg></span></button>
+        </div>
+        <div class="keys cluster">
+          <button class="ghost mini" data-key="back" title="Back — leave this screen (keycode 4)"><span class="lbl">Back</span></button>
+          <button class="ghost mini" data-key="home" title="Home — go to the launcher home screen (keycode 3)"><span class="lbl">Home</span></button>
+          <button class="ghost mini" data-key="recents" title="Recents — the app switcher (keycode 187)"><span class="lbl">Recents</span></button>
+        </div>
+        <div class="pad">
+          <span></span><button data-key="up" title="D-pad up (keycode 19)" aria-label="D-pad up"><span class="lbl">▲</span></button><span></span>
+          <button data-key="left" title="D-pad left (keycode 21)" aria-label="D-pad left"><span class="lbl">◀</span></button><button class="enter" data-key="ok" title="OK — select what is highlighted (keycode 23)"><span class="lbl">OK</span></button><button data-key="right" title="D-pad right (keycode 22)" aria-label="D-pad right"><span class="lbl">▶</span></button>
+          <span></span><button data-key="down" title="D-pad down (keycode 20)" aria-label="D-pad down"><span class="lbl">▼</span></button><span></span>
+        </div>
+        <div class="wheels">
+          <div class="wheel">
+            <span class="wlabel">Volume</span>
+            <button data-key="vol_up" title="Volume up (keycode 24)" aria-label="Volume up"><span class="lbl">+</span></button>
+            <button data-key="vol_down" title="Volume down (keycode 25)" aria-label="Volume down"><span class="lbl">−</span></button>
+          </div>
+          <div class="keys middle">
+            <button class="ghost mini" data-key="play_pause" title="Play or pause the running media (keycode 85)"><span class="lbl">Play/Pause</span></button>
+            <button class="ghost mini" data-key="mute" title="Mute / unmute (keycode 91)"><span class="lbl">Mute</span></button>
+            <button class="ghost mini" data-key="info" title="Info — the TV's info overlay about what is on screen (keycode 164)"><span class="lbl">Info</span></button>
+            <button class="ghost mini" data-key="menu" title="Menu — the options menu of the current app (keycode 82)"><span class="lbl">Menu</span></button>
+          </div>
+          <div class="wheel">
+            <span class="wlabel">Input</span>
+            <button data-key="tv_input" title="Input source — step to the next HDMI / AV input (keycode 178)" aria-label="Next input source"><span class="lbl">⎘</span></button>
+            <button data-key="guide" title="Guide — the electronic programme guide, when a TV app provides one (keycode 172)" aria-label="Programme guide"><span class="lbl">GV</span></button>
+          </div>
+        </div>
+        <div class="keys foot">
+          <button class="ghost mini" data-key="settings" title="Settings — open the TV's settings app (keycode 176)"><span class="lbl">Settings</span></button>
+        </div>
       </div>
-      <div class="keys">
-        <button class="ghost mini" data-key="back"><span class="lbl">Back</span></button>
-        <button class="ghost mini" data-key="home"><span class="lbl">Home</span></button>
-        <button class="ghost mini" data-key="recents"><span class="lbl">Recents</span></button>
-        <button class="ghost mini" data-key="info"><span class="lbl">Info</span></button>
-        <button class="ghost mini" data-key="menu"><span class="lbl">Menu</span></button>
-        <button class="ghost mini" data-key="play_pause"><span class="lbl">Play/Pause</span></button>
-        <button class="ghost mini" data-key="vol_up"><span class="lbl">Vol +</span></button>
-        <button class="ghost mini" data-key="vol_down"><span class="lbl">Vol −</span></button>
-        <button class="ghost mini" data-key="mute"><span class="lbl">Mute</span></button>
-        <button class="ghost mini" data-key="guide"><span class="lbl">Guide</span></button>
-        <button class="ghost mini" data-key="tv_input"><span class="lbl">Input</span></button>
-        <button class="ghost mini" data-key="settings"><span class="lbl">Settings</span></button>
-      </div>
-      <div class="row" style="justify-content:center;margin-top:12px">
-        <button class="ghost mini" id="shot-btn-2"><span class="lbl">Screenshot</span></button>
-      </div>
-      <div class="shot-wrap"><img class="shot" alt="TV screen"></div>
     </section>
 
     <section class="card" id="tune-card">
@@ -128,22 +154,28 @@
 
     <section class="card" id="apk-card">
       <h2>Install APK</h2>
-      <p class="hint">Pushed to <code>/data/local/tmp</code>, installed with <code>pm install -r</code>, then
-        removed. A GitHub link is read through the Releases API and resolved to the asset built for this box.</p>
+      <p class="hint">The file is pushed to <code>/data/local/tmp</code>, installed with
+        <code>pm install -r</code>, then removed. It comes from this computer or from the copies this
+        checkout caches under <code>apks/</code> — a page in a browser cannot download from hosts such as
+        GitHub, which send no cross-origin headers.</p>
       <div class="row">
         <input type="file" id="apk" accept=".apk">
         <button id="install-btn"><span class="lbl">Install</span></button>
       </div>
-      <div class="row" style="margin-top:10px">
-        <label class="f" style="flex:1"><span>Or a URL — GitHub project, release page, or a direct .apk</span>
-          <input type="text" id="apk-url" placeholder="https://github.com/owner/name"></label>
-      </div>
+      <h3 class="sub">Installed by you</h3>
+      <div id="installed"></div>
       <h3 class="sub">Recommended for TV</h3>
       <div id="recs"></div>
-      <p class="legend">Every row installs the newest published release rather than a pinned file, and picks the
-        APK whose instruction set this box runs — the same row gives a 32-bit stick and a 64-bit stick different
-        files. The tag says whether the developer ships a TV home-screen entry (a Leanback launcher in the
-        manifest, read out of each APK on 2026-10-08) or only a phone layout.</p>
+      <p class="legend">"Installed by you" is the device's own third-party list (<code>pm list packages
+        -3</code>) — every package on it is listed by its id, because this Android version exposes no app
+        name over ADB (no <code>application-label</code> in its package dump, no <code>aapt</code> on the
+        box). Open a row's Details for its version, sizes and permissions.<br>
+        A recommendation installs the copy this checkout carries under <code>apks/</code>:
+        <code>python3 refresh_apks.py</code> resolves each project's newest release, keeps the asset that
+        runs on one instruction set (<code>--abi</code>, default: the connected box) and rewrites
+        <code>apks/index.json</code>. An Install button appears only where that file is actually present, and
+        the button names the file — there is no link for anything to follow. The layout tag comes from each
+        cached APK's own manifest: a Leanback launcher entry is what puts a tile on the TV home screen.</p>
     </section>
 
     <section class="card" id="launcher-card">
@@ -160,10 +192,6 @@
           <input type="file" id="launcher-apk" accept=".apk"></label>
         <button class="mini" id="launcher-install"><span class="lbl">Install</span></button>
       </div>
-      <div class="row" style="margin-top:8px">
-        <label class="f" style="flex:1"><span>Or a URL — GitHub project or direct .apk</span>
-          <input type="text" id="launcher-apk-url" placeholder="https://github.com/owner/name"></label>
-      </div>
       <div class="row" style="margin-top:12px">
         <button class="ghost mini" id="launcher-load"><span class="lbl">Refresh</span></button>
         <button class="warn mini" id="launcher-btn"><span class="lbl">Disable Google launcher</span></button>
@@ -176,6 +204,16 @@
     <div id="log"></div>
   </section>
 </main>
+
+<!-- The TV screen at full size. The remote is cloned into it when it opens, so the picture can be driven
+     and re-grabbed without leaving the view; the document-level delegation makes the copy work as-is. -->
+<div class="viewer" id="viewer" hidden>
+  <div class="viewer-box">
+    <img class="shot viewer-shot" alt="TV screen, full size">
+    <div class="viewer-remote" id="viewer-remote"></div>
+    <button class="viewer-close ghost mini" data-shot-close title="Close (Esc)"><span class="lbl">✕</span></button>
+  </div>
+</div>
 
 <script src="/static/api.js"></script>
 <script src="/static/app.js"></script>

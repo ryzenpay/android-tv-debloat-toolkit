@@ -4,3 +4,7 @@ adb/adb
 
 # Python bytecode from running the toolkit or setup scripts
 __pycache__/
+
+# The APKs under apks/ are committed on purpose — that is what makes an Install button work offline.
+# Only a download that died part way through stays out of git.
+apks/*.part

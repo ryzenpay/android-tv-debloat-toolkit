@@ -102,25 +102,30 @@ function renderConnection() {
 
 /* ---------- discovery ---------- */
 
-function deviceRows(devices) {
-  const attached = (devices.attached || []).map((d) => `<div class="dev"><span><b>Attached</b></span>
+/* One row per TV — the engine folds the box's several advertisements (plain port, wireless-debugging
+   port, pairing port) and adb's own attached list into a single device, so nothing here dedupes. */
+function deviceRows(payload) {
+  return (payload.devices || []).map((d) => {
+    const tag = d.status ? (d.status === "device" ? "attached" : d.status)
+      : d.pairable ? "needs pairing" : "connectable";
+    const also = (d.other || []).map((o) => `also ${o.address}${o.pairable ? " (pair first)" : ""}`)
+      .join(" · ");
+    return `<div class="dev" data-dev="${esc(d.address)}" data-pair="${d.pairable ? 1 : 0}"
+        data-pair-port="${esc(d.pair_port)}" title="Fill the address fields with this">
+      <span><b>${esc(d.name)}</b></span>
       <span class="addr">${esc(d.address)}</span>
-      <span class="tag">${esc(d.status)}</span></div>`);
-  const services = (devices.services || []).map((s) => `<div class="dev"><span><b>${esc(s.name)}</b></span>
-      <span class="addr">${esc(s.address)}</span>
-      <span class="tag ${s.pairable ? "pair" : ""}">${s.pairable ? "needs pairing" : "connectable"}</span>
-      <button class="ghost mini" data-dev="${esc(s.address)}" data-pair="${s.pairable ? 1 : 0}">
-        <span class="lbl">${s.pairable ? "Use for pairing" : "Connect"}</span></button></div>`);
-  return attached.concat(services);
+      <span class="tag ${d.pairable && !d.status ? "pair" : ""}">${esc(tag)}</span>
+      ${also ? `<span class="addr">${esc(also)}</span>` : ""}
+    </div>`;
+  }).join("");
 }
 
 async function scan(button) {
   if (connected) return;
   const devices = await (await req("/api/discover", null, button))
-    .json().catch(() => ({ services:[], attached:[] }));
-  const rows = deviceRows(devices);
-  $("#devices").innerHTML = rows.length ? rows.join("")
-    : '<p class="hint">Nothing found yet. Enable Wireless debugging on the TV — it advertises itself once on.</p>';
+    .json().catch(() => ({ devices: [] }));
+  $("#devices").innerHTML = deviceRows(devices)
+    || '<p class="hint">Nothing found yet. Enable Wireless debugging on the TV — it advertises itself once on.</p>';
 }
 
 /* ---------- package list ---------- */
@@ -161,6 +166,36 @@ function renderApps() {
     + `${off} disabled (use the Disabled filter to re-enable them)`;
   $("#enable-all-btn").style.display = off ? "" : "none";
   $("#enable-all-btn").querySelector(".lbl").textContent = `Re-enable all ${off} disabled`;
+  /* Each segment counts itself through matchesFilter, so a number above the list can never disagree
+     with what clicking that segment shows. */
+  document.querySelectorAll(".seg [data-filter]").forEach((chip) => {
+    chip.querySelector(".n").textContent = apps.length ? apps.filter((a) => matchesFilter(a)).length : "";
+  });
+  syncSelectAll();
+}
+
+/* The master box speaks for the rows on screen, never for the whole inventory — the filter and the
+   search both re-render the list, so it re-reads itself from whatever survived the re-render and goes
+   indeterminate when only part of what is visible is ticked. */
+function visibleBoxes() {
+  return [...document.querySelectorAll("#applist input[type=checkbox]")];
+}
+
+function syncSelectAll() {
+  const boxes = visibleBoxes();
+  const on = boxes.filter((box) => box.checked).length;
+  const master = $("#sel-all");
+  master.checked = boxes.length > 0 && on === boxes.length;
+  master.indeterminate = on > 0 && on < boxes.length;
+  master.disabled = !boxes.length;
+  $("#sel-count").textContent = !boxes.length ? "nothing shown"
+    : on === boxes.length ? `all ${boxes.length} shown selected`
+    : `${on} of ${boxes.length} shown selected`;
+}
+
+function setAllVisible(on) {
+  visibleBoxes().forEach((box) => { box.checked = on; });
+  syncSelectAll();
 }
 
 const selected = (off) => [...document.querySelectorAll("#applist input[type=checkbox]")]
@@ -171,11 +206,15 @@ const disabledPackages = () => apps.filter((a) => a.state === "disabled").map((a
 
 async function loadInventory() {
   $("#applist").innerHTML = skeletons(8);
-  const data = await (await req("/api/inventory", null, $("#reload-inv")))
-    .json().catch(() => ({ ok:false }));
+  const response = await req("/api/inventory", null, $("#reload-inv"));
+  const [data] = await Promise.all([
+    response.json().catch(() => ({ ok:false })),
+    loadUserApps(),               // the Install APK panel is rendered from the same read
+  ]);
   if (!data.ok) { fail(data.message || "Could not read the package list."); return; }
   apps = data.apps;
   renderApps();
+  renderInstalled();
   log(`Read ${data.counts.total} packages from ${data.device.model || state.target} — `
     + `${data.counts.bloat} documented bloat still on, ${data.counts.disabled} disabled.`, "muted");
 }
@@ -207,12 +246,14 @@ async function loadDevice() {
   $("#kv").innerHTML = deviceCells(data.device, data.telemetry);
 }
 
-/* One screencap fills every embed on the page — the Device panel and the Remote panel
-   each carry one, so a single fetch updates both. */
+/* One screencap feeds both embeds — the small one in the Remote control card and the full-size one the
+   viewer opens — and the blob it came from is released as soon as the next one is in place. */
+let shotUrl = null;
+
 async function takeScreenshot(button) {
-  const wraps = [...document.querySelectorAll(".shot-wrap")];
   const shots = [...document.querySelectorAll(".shot")];
-  wraps.forEach((wrap) => wrap.classList.add("loading"));
+  const boxes = [...document.querySelectorAll(".shot-wrap, .viewer-box")];
+  boxes.forEach((box) => box.classList.add("loading"));
   if (button) button.dataset.busy = "1";
   busy(true);
   try {
@@ -223,15 +264,36 @@ async function takeScreenshot(button) {
       return;
     }
     const url = URL.createObjectURL(await response.blob());
-    shots.forEach((img) => { img.src = url; img.style.display = "block"; });
+    shots.forEach((img) => { img.src = url; });
+    document.querySelectorAll(".shot-wrap").forEach((wrap) => wrap.classList.add("filled"));
+    if (shotUrl) URL.revokeObjectURL(shotUrl);
+    shotUrl = url;
     log("✓ Screenshot captured.", "ok");
   } catch (error) {
     fail("Screenshot failed: " + error.message);
   } finally {
     busy(false);
     if (button) delete button.dataset.busy;
-    wraps.forEach((wrap) => wrap.classList.remove("loading"));
+    boxes.forEach((box) => box.classList.remove("loading"));
   }
+}
+
+/* Opening the picture is also how the first capture happens: the Screenshot button is gone, and nothing
+   asks the TV for a frame until a frame is actually wanted. The remote is cloned in beside the picture
+   so the screen can be driven from here; its buttons are handled by document-level delegation, so the
+   copy works untouched — including the refresh icon it carries. */
+function openViewer() {
+  const copy = $("#remote").cloneNode(true);
+  copy.removeAttribute("id");
+  $("#viewer-remote").replaceChildren(copy);
+  $("#viewer").hidden = false;
+  document.body.classList.add("viewer-open");
+  if (!shotUrl) takeScreenshot();
+}
+
+function closeViewer() {
+  $("#viewer").hidden = true;
+  document.body.classList.remove("viewer-open");
 }
 
 /* The remote drives the picture. A press schedules a grab after the TV has had a moment to
@@ -276,9 +338,8 @@ async function loadTunables() {
   card.classList.remove("busy");
   if (!data.ok) { fail(data.message); return; }
   $("#tunables").innerHTML = Object.entries(data.values).map(([name, spec]) => `
-    <div class="dev" style="justify-content:space-between">
-      <span style="max-width:150px">${esc(name.replace(/_/g, " "))}<br>
-        <small style="color:var(--muted)">factory ${esc(spec.factory)}</small></span>
+    <div class="tunerow">
+      <span class="nm">${esc(name.replace(/_/g, " "))}<br><small>factory ${esc(spec.factory)}</small></span>
       <input type="text" data-tune="${esc(name)}" value="${esc(spec.value)}" size="5">
       <button class="mini" data-set="${esc(name)}"><span class="lbl">Set</span></button>
       <button class="ghost mini" data-reset="${esc(name)}" data-to="${esc(spec.factory)}">
@@ -328,7 +389,11 @@ const ACTION_WARNING = {
 const DESTRUCTIVE_ACTIONS = ["clear-data", "uninstall-updates", "uninstall", "uninstall-user"];
 
 async function showDetails(packageName, button) {
-  const row = document.querySelector(`[data-row="${CSS.escape(packageName)}"]`);
+  /* The drawer opens next to the control that was pressed. The same app also has a row in the Apps
+     list, and that one can be filtered out or scrolled off screen — looking only for it made Details
+     on an installed app do nothing at all. */
+  const row = (button && button.closest("[data-row]"))
+    || document.querySelector(`[data-row="${CSS.escape(packageName)}"]`);
   if (!row) return;
   const existing = row.parentNode.querySelector(`[data-drawer="${CSS.escape(packageName)}"]`);
   if (existing) { existing.remove(); return; }
@@ -380,7 +445,10 @@ async function doDisconnect() {
   apps = [];
   $("#applist").innerHTML = "";
   $("#kv").innerHTML = "";
-  document.querySelectorAll(".shot").forEach((img) => { img.style.display = "none"; img.removeAttribute("src"); });
+  closeViewer();
+  document.querySelectorAll(".shot").forEach((img) => img.removeAttribute("src"));
+  document.querySelectorAll(".shot-wrap").forEach((wrap) => wrap.classList.remove("filled"));
+  if (shotUrl) { URL.revokeObjectURL(shotUrl); shotUrl = null; }
   await refresh();
 }
 
@@ -429,17 +497,27 @@ async function runAppAction(packageName, action, button) {
   report(data, action + " · ");
 }
 
-async function useDiscoveredDevice(address, needsPairing, button) {
-  if (!needsPairing) {
-    const [ip, port] = address.split(":");
-    doConnect(ip, port, button);
+/* A click fills the address fields and stops there — it used to connect immediately, which made an
+   accidental click start a transport. Only a _adb-tls-pairing._tcp advertisement may fill the pairing
+   port: wireless debugging's own port is a connect port, and putting it there just fails later. */
+function useDiscoveredDevice(address, needsPairing, pairPort) {
+  if (!$("#ip")) return;
+  const [host, port] = address.split(":");
+  $("#ip").value = host;
+  $("#port").value = port || "5555";
+  if (!needsPairing && !pairPort) {
+    log(`Filled ${host}:${port || "5555"} — press Connect when you are ready.`, "note");
     return;
   }
-  forcePair = true;
-  renderConnection();
-  $("#p_ip").value = address.split(":")[0];
+  $("#pair-details").open = true;
+  $("#p_ip").value = host;
+  const pairOnly = pairPort ? pairPort.split(":")[1] : "";
+  if (pairOnly) $("#p_port").value = pairOnly;
   $("#p_code").focus();
-  log(`Endpoint ${address} needs a pairing code — enter the code shown on the TV.`, "note");
+  log(pairOnly
+    ? `${host} also advertises its pairing port (${pairOnly}) — enter the 6-digit code from the TV.`
+    : `${address} is wireless debugging's connect port and needs a code first; the pairing port is on the TV's screen.`,
+    "note");
 }
 
 /* ---------- state refresh ---------- */
@@ -473,8 +551,6 @@ const PANEL_BUTTONS = {
   "#rescan": () => scan($("#rescan")),
   "#reload-inv": loadInventory,
   "#dev-refresh": loadDevice,
-  "#shot-btn": takeScreenshot,
-  "#shot-btn-2": takeScreenshot,
   "#log-btn": fetchLog,
   "#tune-refresh": loadTunables,
   "#launcher-load": loadLaunchers,
@@ -488,6 +564,10 @@ Object.entries(PANEL_BUTTONS).forEach(([selector, handler]) => {
 });
 
 $("#q").addEventListener("input", renderApps);
+$("#sel-all").addEventListener("change", (event) => setAllVisible(event.target.checked));
+document.addEventListener("change", (event) => {
+  if (event.target.matches("#applist input[type=checkbox]")) syncSelectAll();
+});
 
 $("#reboot-btn").addEventListener("click", async (event) => {
   if (!confirm("Reboot the TV now?\nADB drops for about a minute and Wireless debugging may need re-enabling.")) return;
@@ -510,11 +590,11 @@ $("#launcher-btn").addEventListener("click", async (event) => {
   report(await api("/api/launcher/disable", {}, event.currentTarget), "Launcher: ");
 });
 
-/* A recommendation is only ever its project link, never a pinned file: clicking Install resolves
-   the newest published release at that moment and takes the asset matching the connected box's
-   instruction set. The layout tag is what each project's APK manifest declared when it was read on
-   2026-10-08 — a Leanback launcher is what puts a tile on the TV home screen; without one the app
-   still installs and runs, just in its phone layout. */
+/* A recommendation is only ever its project link plus the copy this checkout carries: no pinned
+   download URLs. The layout tag was read out of each cached APK's own manifest on 2026-10-08 — a
+   Leanback launcher entry is what puts a tile on the TV home screen; without one the app still
+   installs and runs, just in its phone layout. "installed" comes from the package list the device
+   reports as yours, never from a saved list. */
 const RECOMMENDED = [
   { name:"SmartTube", repo:"https://github.com/yuliskov/SmartTube", tv:true,
     why:"Ad-free YouTube in its own interface built for a remote, no Google sign-in. One APK per instruction set." },
@@ -522,56 +602,136 @@ const RECOMMENDED = [
     why:"Self-hosted smart-home dashboards — the TV as a wall panel. The wear and automotive builds are skipped." },
   { name:"Jellyfin", repo:"https://github.com/jellyfin/jellyfin-androidtv", tv:true,
     why:"Self-hosted media client, TV front-end (org.jellyfin.androidtv): your library, no subscription." },
+  { name:"Nova Video Player", repo:"https://github.com/nova-video-player/aos-AVP", tv:true,
+    why:"Plays a NAS share or a local file with its own ffmpeg codecs — the box's decoder is not the limit here." },
+  { name:"LocalSend", repo:"https://github.com/localsend/localsend", tv:true,
+    why:"Move files between this computer and the box over the LAN: no cloud, no cable, no adb." },
   { name:"ReVanced Manager", repo:"https://github.com/ReVanced/revanced-manager", tv:false,
     why:"Builds patched APKs on the device. Android TV support is still dev-only past v2.6.0, so expect a phone layout." },
 ];
 
+/* Install on a recommendation uses the APK committed beside this checkout (apks/index.json, written
+   by refresh_apks.py for one instruction set). An entry with no cached file shows its project link
+   and nothing else — the button exists because the file does, never because markup claims it. */
+let cachedApks = new Map();
+
+async function loadApks() {
+  const data = await (await req("/api/apks")).json().catch(() => ({ files: [] }));
+  cachedApks = new Map(((data && data.files) || []).map((row) => [String(row.repo).toLowerCase(), row]));
+  renderRecs();
+}
+
+const cachedFor = (repo) => cachedApks.get(repo.replace("https://github.com/", "").toLowerCase());
+
+/* The device decides which packages arrived after the factory image — `pm list packages -3` is its own
+   answer, and it is the only one that holds up: uid ranges do not separate the two, because APEX modules
+   get uids in the same band as apps you installed (com.android.wifi.resources is uid 10101 on this box). */
+let userPackages = null;
+let userAppsWhy = "";
+
+async function loadUserApps() {
+  const data = await (await req("/api/user-apps")).json()
+    .catch(() => ({ ok:false, message:"The toolkit could not read the TV's installed-app list" }));
+  userPackages = data.ok ? new Set(data.packages) : null;
+  userAppsWhy = data.ok ? "" : (data.message || "The TV did not answer that read");
+}
+
+const userApps = () => (userPackages ? apps.filter((a) => userPackages.has(a.package)) : []);
+
+/* Matched on the package id, not on a name: this Android 14 box exposes no label to ADB at all
+   (dumpsys has no application-label and the box ships no aapt), so the only device-sourced string that
+   identifies an app is its package. A recommendation whose id doesn't contain its name simply goes
+   untagged — the test can miss, it cannot invent a match. */
+const onDevice = (name) => {
+  const first = name.toLowerCase().split(" ")[0];
+  const whole = name.toLowerCase().replace(/[^a-z]/g, "");
+  return userApps().find((a) => {
+    const id = a.package.toLowerCase();
+    return id.includes(first) || id.replace(/[^a-z0-9]/g, "").includes(whole);
+  });
+};
+
 function renderRecs() {
-  $("#recs").innerHTML = RECOMMENDED.map((r) => `
+  const box = $("#recs");
+  if (!box) return;
+  box.innerHTML = RECOMMENDED.map((r) => {
+    const here = onDevice(r.name);
+    const file = cachedFor(r.repo);
+    const label = file ? `${file.asset} · ${(file.bytes / 1048576).toFixed(1)} MB · ${file.abi}` : "";
+    return `
     <div class="rec">
       <div class="body">
         <div class="nm">${esc(r.name)}
-          <span class="tag${r.tv ? "" : " pair"}">${r.tv ? "TV layout" : "Phone layout"}</span></div>
+          <span class="tag${r.tv ? "" : " pair"}">${r.tv ? "TV layout" : "Phone layout"}</span>
+          ${here ? `<span class="tag">${esc(r.name)} installed</span>` : ""}</div>
         <div class="why">${esc(r.why)}</div>
         <a class="src" href="${esc(r.repo)}" target="_blank" rel="noopener">${
           esc(r.repo.replace("https://github.com/", ""))}</a>
+        <div class="why">${file ? `cached here: ${esc(file.tag)} · ${(file.bytes / 1048576).toFixed(1)} MB · ${
+          esc(file.abi)}` : "not cached in this checkout — get the build for this box from the project, then "
+          + "choose the file above"}</div>
       </div>
-      <button class="ghost mini" data-rec="${esc(r.repo)}"><span class="lbl">Install</span></button>
-    </div>`).join("");
+      ${file ? `<button class="mini" data-cache="${esc(file.file)}" title="${esc(label)}">
+        <span class="lbl">Install ${esc(file.tag)}</span></button>` : ""}
+    </div>`;
+  }).join("");
 }
 
-renderRecs();
+function renderInstalled() {
+  const box = $("#installed");
+  if (!box) return;
+  const rows = userApps();
+  box.innerHTML = userAppsWhy
+    ? `<p class="legend">${esc(userAppsWhy)} — Rescan packages tries again.</p>`
+    : !userPackages
+    ? '<p class="legend">Reading what the TV counts as installed…</p>'
+    : rows.length
+    ? rows.map((a) => `
+      <div class="rec" data-row="${esc(a.package)}">
+        <div class="body">
+          <div class="nm">${esc(a.package)}</div>
+          <div class="why">Installed by ${esc(a.installer || "sideload / unknown")} · uid ${esc(a.uid)}${
+            a.state === "disabled" ? " · disabled" : ""}</div>
+        </div>
+        <button class="ghost mini" data-details="${esc(a.package)}"><span class="lbl">Details</span></button>
+      </div>`).join("")
+    : '<p class="legend">Nothing installed by you — every package on the box came with it.</p>';
+  renderRecs();
+}
 
-/* One installer serves both panels (Install APK and the Launcher card): a picked file wins
-   over a pasted URL, and on success the package list is re-read — the Launcher card also
-   refreshes its picker so a freshly installed home app shows up straight away. */
-async function installApk(fileInput, urlInput, button, afterwards) {
-  const url = urlInput.value.trim();
-  let data;
-  if (fileInput.files.length) {
-    const form = new FormData();
-    form.append("file", fileInput.files[0]);
-    log("Installing " + fileInput.files[0].name + " …", "muted");
-    data = await api("/api/install", form, button);
-  } else if (url) {
-    log("Fetching " + url + " …", "muted");
-    data = await api("/api/install", { url }, button);
-  } else {
-    log("Pick an APK or paste a URL first.", "bad");
-    return;
-  }
+/* One installer serves both panels (Install APK and the Launcher card): only a file picked from this
+   computer is ever installed. A pasted URL needed the server to download it, which the browser-side
+   engine cannot do for hosts like GitHub that send no cross-origin headers. On success the package
+   list is re-read — the Launcher card also refreshes its picker. */
+async function installApk(fileInput, button, afterwards) {
+  if (!fileInput.files.length) { log("Pick an APK first.", "bad"); return; }
+  const form = new FormData();
+  form.append("file", fileInput.files[0]);
+  log("Installing " + fileInput.files[0].name + " …", "muted");
+  const data = await api("/api/install", form, button);
   report(data);
   if (!data.ok) return;
   fileInput.value = "";
-  urlInput.value = "";
   await loadInventory();
   if (afterwards) await afterwards();
 }
 
+/* A recommendation's button names a file, never a URL: the engine looks that name up in
+   apks/index.json and refuses anything the manifest does not list, so it cannot be steered at a
+   path or a host. */
+async function installCached(file, button) {
+  log("Installing " + file + " …", "muted");
+  const data = await api("/api/install", { cached: file }, button);
+  report(data);
+  if (!data.ok) return;
+  await loadInventory();
+  await loadLaunchers();
+}
+
 $("#install-btn").addEventListener("click", (event) =>
-  installApk($("#apk"), $("#apk-url"), event.currentTarget));
+  installApk($("#apk"), event.currentTarget));
 $("#launcher-install").addEventListener("click", (event) =>
-  installApk($("#launcher-apk"), $("#launcher-apk-url"), event.currentTarget, loadLaunchers));
+  installApk($("#launcher-apk"), event.currentTarget, loadLaunchers));
 
 document.addEventListener("click", async (event) => {
   const chip = event.target.closest("[data-filter]");
@@ -584,16 +744,11 @@ document.addEventListener("click", async (event) => {
   const key = event.target.closest("[data-key]");
   if (key) { sendKey(key.dataset.key, key); return; }
 
-  const rec = event.target.closest("[data-rec]");
-  if (rec) {
-    // Goes through the URL field so the log names the same link the row shows.
-    $("#apk-url").value = rec.dataset.rec;
-    await installApk($("#apk"), $("#apk-url"), rec);
-    return;
-  }
-
   const details = event.target.closest("[data-details]");
   if (details) { showDetails(details.dataset.details, details); return; }
+
+  const cached = event.target.closest("[data-cache]");
+  if (cached) { installCached(cached.dataset.cache, cached); return; }
 
   const act = event.target.closest("[data-act]");
   if (act) { runAppAction(act.dataset.pkg, act.dataset.act, act); return; }
@@ -607,7 +762,17 @@ document.addEventListener("click", async (event) => {
   }
 
   const dev = event.target.closest("[data-dev]");
-  if (dev) useDiscoveredDevice(dev.dataset.dev, dev.dataset.pair === "1", dev);
+  if (dev) { useDiscoveredDevice(dev.dataset.dev, dev.dataset.pair === "1", dev.dataset.pairPort); return; }
+
+  if (event.target.closest("[data-shot-open]")) { openViewer(); return; }
+  if (event.target.closest("[data-shot-close]")) { closeViewer(); return; }
+  const refresh = event.target.closest("[data-shot-refresh]");
+  if (refresh) { takeScreenshot(refresh); return; }
+  if (event.target.classList.contains("viewer")) closeViewer();   // backdrop click
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("#viewer").hidden) closeViewer();
 });
 
 /* One automatic reconnect per page load, from the address this browser saved. Wireless
@@ -621,6 +786,7 @@ async function autoConnect() {
 }
 
 (async function start() {
+  await loadApks();          // what this checkout carries is not device state, so read it first
   await refresh();
   if (!connected) await autoConnect();
   await scan();

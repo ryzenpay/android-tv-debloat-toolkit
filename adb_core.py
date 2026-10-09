@@ -90,28 +90,65 @@ def device_info(target=None):
     }
 
 
+# One advertisement per transport, so a single TV publishes several of these at once.
+SERVICE_KIND = {
+    "_adb._tcp": "plain",
+    "_adb-tls-connect._tcp": "tls",
+    "_adb-tls-pairing._tcp": "pair",
+}
+
+
 def discover():
-    """mDNS-advertised adb endpoints plus whatever adb already has attached."""
-    services = []
-    stdout, _, rc = run_adb("mdns", "services")
-    if rc == 0:
-        for line in stdout.replace("\r", "").splitlines():
-            parts = line.split()
-            if len(parts) == 3 and ":" in parts[2] and parts[1].startswith("_adb"):
-                services.append({
-                    "name": parts[0],
-                    "service": parts[1],
-                    "address": parts[2],
-                    "pairable": parts[1] == "_adb-tls-connect._tcp",
-                })
-    attached = []
+    """One row per TV, not one row per advertisement.
+
+    A box publishes ``_adb._tcp`` (the plain port this toolkit connects with), ``_adb-tls-connect._tcp``
+    (wireless debugging's own port, reachable only after a pairing code) and, while the pairing screen is
+    open on the TV, ``_adb-tls-pairing._tcp`` — which is not connectable at all, it is the port the pairing
+    form wants. adb also keeps listing an address it has already attached. Listing every record produced
+    three rows for one set-top box: the attached one, the plain one, and the same box on its TLS port.
+    """
+    attached = {}
     stdout, _, rc = run_adb("devices")
     if rc == 0:
         for line in stdout.replace("\r", "").splitlines()[1:]:
             fields = line.split()
             if len(fields) >= 2 and ":" in fields[0]:
-                attached.append({"address": fields[0], "status": fields[1]})
-    return {"services": services, "attached": attached}
+                attached[fields[0]] = fields[1]
+
+    per_host = {}
+    for address, status in attached.items():
+        per_host.setdefault(address.rsplit(":", 1)[0], {})
+    stdout, _, rc = run_adb("mdns", "services")
+    if rc == 0:
+        for line in stdout.replace("\r", "").splitlines():
+            parts = line.split()
+            if len(parts) != 3 or ":" not in parts[2]:
+                continue
+            kind = SERVICE_KIND.get(parts[1])
+            if kind:
+                per_host.setdefault(parts[2].rsplit(":", 1)[0], {})[kind] = (parts[0], parts[2])
+
+    devices = []
+    for host, seen in sorted(per_host.items()):
+        plain, tls, pair = seen.get("plain"), seen.get("tls"), seen.get("pair")
+        connect = plain or tls
+        statuses = [status for address, status in attached.items()
+                    if address.rsplit(":", 1)[0] == host]
+        address = connect[1] if connect else next(iter(
+            sorted(address for address in attached if address.rsplit(":", 1)[0] == host)), host)
+        other = [{"address": record[1], "pairable": kind == "tls"}
+                 for kind, record in (("plain", plain), ("tls", tls))
+                 if record and record[1] != address]
+        devices.append({
+            "host": host,
+            "name": connect[0] if connect else host,
+            "address": address,
+            "pairable": bool(connect) and connect is tls,
+            "status": attached.get(address, "") or (statuses[0] if statuses else ""),
+            "pair_port": pair[1] if pair else "",
+            "other": other,
+        })
+    return {"devices": devices}
 
 
 def transport_state(target=None):
@@ -289,8 +326,9 @@ def detect_packages(target=None):
              if line.startswith("package:")}
     installers = {}
     for line in _shell("pm list packages -i --user 0", target).splitlines():
-        match = re.match(r"^package:(\S+) installer=(\S+)$", line)
-        if match:
+        # The box separates the two fields with two spaces and prints installer=null when it has none.
+        match = re.match(r"^package:(\S+)\s+installer=(\S+)$", line)
+        if match and match.group(2) != "null":
             installers[match.group(1)] = match.group(2)
     running = {token for token in _shell("ps -A -o NAME=", target).split() if "." in token}
 
@@ -374,6 +412,16 @@ def detect_packages(target=None):
         row["package"],
     ))
     return detected
+
+
+def user_apps(target=None):
+    """Packages the device itself counts as installed after the factory image.
+
+    Asked of the device on purpose: uid ranges do not separate user installs from what shipped —
+    APEX modules get uids in the same band as apps you installed yourself.
+    """
+    lines = _shell("pm list packages -3", target).splitlines()
+    return sorted(line[len("package:"):] for line in lines if line.startswith("package:"))
 
 
 def restore(packages, target=None):
@@ -590,11 +638,19 @@ def download_apk(url, abi=None):
 
 
 def _first_error(*outputs):
-    """The one line from a pm failure worth showing; the rest is a Java stack trace."""
+    """The one line from a pm failure worth showing; the rest is a Java stack trace.
+
+    pm prints a bare header ("Exception occurred while executing 'install':") above the reason, so the
+    header only wins when nothing more specific is in the output — otherwise the real cause, which is
+    usually a java.lang.* line, is what the user should read.
+    """
     detail = "\n".join(out.strip() for out in outputs if out and out.strip())
     lines = [line for line in detail.splitlines() if line.strip()]
     for line in lines:
         if line.startswith(("Error:", "Failure:", "INSTALL")):
+            return line
+    for line in lines:
+        if "Error:" in line or "Failure:" in line:
             return line
     return lines[0] if lines else "unknown error"
 

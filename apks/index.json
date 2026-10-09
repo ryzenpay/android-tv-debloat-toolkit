@@ -1,0 +1,59 @@
+{
+  "abi": "armeabi-v7a",
+  "files": [
+    {
+      "repo": "ReVanced/revanced-manager",
+      "asset": "revanced-manager-2.6.0.apk",
+      "tag": "v2.6.0",
+      "file": "ReVanced.revanced-manager-revanced-manager-2.6.0.apk",
+      "bytes": 46860298,
+      "sha256": "cba4c461553ea74eb25a7b2e1842419c7f4f40adc619b10d518c114204b7e846",
+      "abi": "armeabi-v7a"
+    },
+    {
+      "repo": "home-assistant/android",
+      "asset": "app-full-release.apk",
+      "tag": "2026.8.4",
+      "file": "home-assistant.android-app-full-release.apk",
+      "bytes": 40625111,
+      "sha256": "ed1ded69472f2fa87c20c975b3e5f628889ec304dc9eb6aa5c52ecb6bd4c4687",
+      "abi": "armeabi-v7a"
+    },
+    {
+      "repo": "jellyfin/jellyfin-androidtv",
+      "asset": "jellyfin-androidtv-v0.19.10-release.apk",
+      "tag": "v0.19.10",
+      "file": "jellyfin.jellyfin-androidtv-jellyfin-androidtv-v0.19.10-release.apk",
+      "bytes": 21950619,
+      "sha256": "8510a517c99927076082917f41bf306dd7a2546c59d492dd11bde18d6e2e4628",
+      "abi": "armeabi-v7a"
+    },
+    {
+      "repo": "localsend/localsend",
+      "asset": "LocalSend-1.18.2-android-arm32v7.apk",
+      "tag": "v1.18.2",
+      "file": "localsend.localsend-LocalSend-1.18.2-android-arm32v7.apk",
+      "bytes": 39333444,
+      "sha256": "222b02d2813578a574cd3fbcfa7b8ff317d4887edb9ca0fb7b292816d222dc63",
+      "abi": "armeabi-v7a"
+    },
+    {
+      "repo": "nova-video-player/aos-AVP",
+      "asset": "org.courville.nova-2671314-6.5.3-20260930.1914-armeabi-v7a-release.apk",
+      "tag": "v6.5.3",
+      "file": "nova-video-player.aos-AVP-org.courville.nova-2671314-6.5.3-20260930.1914-armeabi-v7a-release.apk",
+      "bytes": 29867256,
+      "sha256": "60702382c553ba2087a75b685c08e325ae9ef11cf8032fd60084d82f430e764a",
+      "abi": "armeabi-v7a"
+    },
+    {
+      "repo": "yuliskov/SmartTube",
+      "asset": "SmartTube_stable_32.56_armeabi-v7a.apk",
+      "tag": "32.56s",
+      "file": "yuliskov.SmartTube-SmartTube_stable_32.56_armeabi-v7a.apk",
+      "bytes": 25046686,
+      "sha256": "d2e9bc90b95aa6232fbf647e63003ccb9051d1aad53531c103aa997e443457b6",
+      "abi": "armeabi-v7a"
+    }
+  ]
+}

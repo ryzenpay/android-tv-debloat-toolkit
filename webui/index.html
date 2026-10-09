@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="relay-token" content="__RELAY_TOKEN__">
+<title>Android TV Debloat — browser-side</title>
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<header>
+    <h1>Android TV Debloat</h1>
+    <p class="tag">The ADB conversation happens in this tab. The only thing between it and your TV is a
+        byte pipe you run yourself.</p>
+</header>
+
+<section class="card" id="connect-card">
+    <h2>Connect</h2>
+    <div class="fields">
+        <label>TV address<input id="target" type="text" placeholder="192.168.5.107" spellcheck="false" autocomplete="off"></label>
+        <button id="connect">Connect</button>
+    </div>
+    <details id="advanced" hidden>
+        <summary>Relay address and token</summary>
+        <div class="fields">
+            <label>Relay<input id="relay" type="text" value="127.0.0.1:9503" spellcheck="false" autocomplete="off"></label>
+            <label>Token<input id="token" type="password" placeholder="printed by relay.py" spellcheck="false" autocomplete="off"></label>
+        </div>
+        <p class="hint">Filled in automatically while this page is served by the relay itself. Needed only
+            when the page comes from somewhere else — then the relay is the address of the machine running
+            it, and the token is whatever that process printed.</p>
+    </details>
+    <p class="hint" id="key-state">No key in this browser yet.</p>
+    <details id="key-details">
+        <summary>This TV already trusts another computer</summary>
+        <p class="hint">Paste the whole private key file (on Linux/WSL it is
+            <code>~/.android/adbkey</code>) and the tab will sign with it instead of asking the TV.
+            It stays in this browser's storage and is never sent anywhere but to the TV.</p>
+        <textarea id="key-paste" rows="5" spellcheck="false" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+        <div class="fields">
+            <button id="import-key">Use this key</button>
+            <button id="generate-key" class="quiet">Make a new key instead</button>
+        </div>
+    </details>
+</section>
+
+<section class="card" id="device-card" hidden>
+    <h2>Device</h2>
+    <dl id="device-facts"></dl>
+</section>
+
+<section class="card" id="inventory-card" hidden>
+    <div class="inventory-head">
+        <h2>Everything installed <span id="counts" class="counts"></span></h2>
+        <button id="rescan" class="quiet">Rescan</button>
+    </div>
+    <div class="filters">
+        <input id="search" type="search" placeholder="filter by package or reason">
+        <span id="verdict-filters" class="chips"></span>
+        <label class="toggle"><input id="hide-core" type="checkbox" checked> hide system-critical</label>
+        <label class="toggle"><input id="only-disabled" type="checkbox"> only already disabled</label>
+    </div>
+    <p class="hint">Risk is read from the device — partition, uid, system roles, installer, whether a
+        process is live — never from a name list. It ranks candidates; it does not promise safety.
+        Nothing on this page changes the TV yet.</p>
+    <table id="inventory">
+        <thead><tr><th>Package</th><th>Why</th><th>Where</th></tr></thead>
+        <tbody></tbody>
+    </table>
+</section>
+
+<p id="status" role="status"><span id="spinner" class="spinner" hidden></span><span id="status-text"></span></p>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

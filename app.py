@@ -1,6 +1,9 @@
 """Android TV Toolkit — Flask web UI. Run: python app.py"""
 import argparse
+import ipaddress
+import json
 import os
+import pathlib
 import socket
 import tempfile
 import threading
@@ -12,6 +15,51 @@ from werkzeug.utils import secure_filename
 import adb_core as core
 
 app = Flask(__name__)
+APKS = pathlib.Path(__file__).with_name("apks")
+# Names the Host header may carry besides an IP literal and localhost — a reverse proxy's name, say.
+EXTRA_HOSTS = set()
+
+
+def _host_name():
+    """The bare host from the Host header, port and IPv6 brackets removed."""
+    host = request.host or ""
+    if host.startswith("["):
+        return host.partition("]")[0][1:]
+    return host.partition(":")[0]
+
+
+def _host_is_mine():
+    """True when the Host header names this machine, not a domain somebody else owns.
+
+    The check below compares Origin to request.host_url, and Werkzeug builds that from Host, so a page on
+    a domain whose DNS re-resolves here (rebinding) matches its own Origin and passes for same-origin in
+    the browser's own accounting too. Refusing any Host that is not a literal address is what makes the
+    comparison mean something; this page is opened by IP on every documented platform, so nothing legit
+    depends on a name.
+    """
+    name = _host_name().lower()
+    if not name:
+        return False
+    if name == "localhost" or name in EXTRA_HOSTS:
+        return True
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return True
+
+
+def cached_apks():
+    """What refresh_apks.py left in apks/: (abi, rows), empty when nothing is cached here."""
+    index = APKS / "index.json"
+    if not index.is_file():
+        return "", []
+    try:
+        manifest = json.loads(index.read_text())
+    except ValueError:
+        return "", []
+    return manifest.get("abi") or "", manifest.get("files") or []
+
 
 
 def _connected_or_error():
@@ -21,9 +69,16 @@ def _connected_or_error():
 
 
 @app.before_request
-def reject_cross_origin_mutation():
-    """There is no login, so a same-origin check is what stands between a random web page and
-    these routes: a form post needs no preflight and, on the body-free routes, no body at all."""
+def reject_foreign_request():
+    """There is no login, so these headers are what stand between a random web page and this app: a form
+    post needs no preflight and, on the body-free routes, no body at all.
+
+    The Host rule covers every method — a rebound page is same-origin to the browser, so it reads logcat
+    and the package list on a GET just as happily as it mutates."""
+    if not _host_is_mine():
+        return jsonify({"ok": False,
+                        "message": "Blocked: this page answers only requests addressed to its own "
+                                   "IP. Open it the way the README shows, by address."}), 403
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return None
     if (request.headers.get("Sec-Fetch-Site") or "").lower() in ("cross-site", "cross-origin"):
@@ -32,6 +87,15 @@ def reject_cross_origin_mutation():
     if origin and origin != request.host_url.rstrip("/"):
         return jsonify({"ok": False, "message": "Blocked: cross-origin request."}), 403
     return None
+
+
+@app.after_request
+def refuse_to_be_framed(response):
+    """Inside somebody else's frame this page's own requests are genuinely same-origin, so the gate above
+    cannot tell them apart — which is how a page gets you to click Reboot or Disable launcher yourself."""
+    response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    return response
 
 
 @app.get("/")
@@ -73,6 +137,14 @@ def api_inventory():
             "disabled": sum(1 for r in rows if r["state"] == "disabled"),
         },
     })
+
+
+@app.get("/api/user-apps")
+def api_user_apps():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    return jsonify({"ok": True, "packages": core.user_apps()})
 
 
 @app.post("/api/connect")
@@ -146,6 +218,13 @@ def api_disable_launcher():
     return jsonify(result), (200 if result["ok"] else 400)
 
 
+@app.get("/api/apks")
+def api_apks():
+    """The APKs this checkout carries, so the page can offer them without reaching the network."""
+    abi, files = cached_apks()
+    return jsonify({"ok": True, "abi": abi, "files": files})
+
+
 @app.post("/api/install")
 def api_install():
     blocked = _connected_or_error()
@@ -166,7 +245,26 @@ def api_install():
                 pass
         return jsonify(result), (200 if result["ok"] else 400)
 
-    url = str((request.get_json(silent=True) or {}).get("url", "")).strip()
+    payload = request.get_json(silent=True) or {}
+
+    cached = str(payload.get("cached", "")).strip()
+    if cached:
+        # Only a file the local manifest lists, by exact name: no path, no host, nothing to traverse.
+        _, rows = cached_apks()
+        row = next((r for r in rows if r.get("file") == cached), None)
+        if not row:
+            return jsonify({"ok": False, "message": f"{cached} is not one of the APKs cached here."}), 400
+        path = APKS / row["file"]
+        if not path.is_file():
+            return jsonify({"ok": False,
+                            "message": f"{row['file']} is listed in apks/index.json but the file is not here."}), 400
+        name = secure_filename(row["file"]) or "app.apk"
+        result = core.install_apk(str(path), name)
+        if result["ok"]:
+            result["message"] = f"Installed {name} ({row.get('bytes', 0) / 1048576:.1f} MB)."
+        return jsonify(result), (200 if result["ok"] else 400)
+
+    url = str(payload.get("url", "")).strip()
     if url:
         # The ABI goes with it so a GitHub link resolves to the asset that runs on this box.
         download = core.download_apk(url, core.device_abi())
@@ -314,7 +412,11 @@ def main():
     parser.add_argument("--no-browser", action="store_true",
                         default=bool(os.environ.get("TOOLKIT_NO_BROWSER")),
                         help="do not open a browser automatically")
+    parser.add_argument("--allow-host", action="append", default=[], dest="allow_hosts",
+                        help="extra name the Host header may carry (repeatable), for a reverse proxy in front")
     args = parser.parse_args()
+
+    EXTRA_HOSTS.update(name.lower() for name in args.allow_hosts)
 
     port = free_port(args.host, args.port)
     url = f"http://{'127.0.0.1' if args.host in ('0.0.0.0', '::') else args.host}:{port}/"
