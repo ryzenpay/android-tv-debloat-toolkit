@@ -1,5 +1,6 @@
-# Build context hygiene. adb/ is excluded on purpose: the image fetches a native platform-tools
-# binary during the build (see Dockerfile), so shipping the repo's Windows stub is pointless.
+# Build context hygiene. adb/ is excluded on purpose: the image fetches its own native
+# platform-tools binary during the build (see Dockerfile), and a local `python setup.py`
+# would otherwise drag a host binary of the wrong platform into the image.
 .git
 .gitignore
 .dockerignore
@@ -8,10 +9,7 @@ docker-compose.yml
 .qwen
 __pycache__/
 *.py[cod]
-config.json
 adb/
-scripts/
-banner.png
 banner.PNG
 nohup.out
 *.log

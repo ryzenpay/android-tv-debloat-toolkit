@@ -10,8 +10,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     TOOLKIT_HOST=0.0.0.0 \
     TOOLKIT_PORT=8000 \
-    TOOLKIT_NO_BROWSER=1 \
-    TOOLKIT_CONFIG=/data/config.json
+    TOOLKIT_NO_BROWSER=1
 
 WORKDIR /app
 
@@ -23,15 +22,16 @@ COPY . .
 
 RUN python setup.py \
  && useradd --create-home --uid 1000 toolkit \
- && mkdir -p /data /home/toolkit/.android \
- && chown -R toolkit:toolkit /app /data /home/toolkit/.android
+ && mkdir -p /home/toolkit/.android \
+ && chown -R toolkit:toolkit /app /home/toolkit/.android
 
-# adb writes its pairing key to $HOME/.android and the UI writes config.json; both belong on
-# volumes (see docker-compose.yml) so a rebuild does not un-pair your TV.
+# The only state here is the adb keypair that 'adb pair' writes to $HOME/.android; it goes on a
+# volume (see docker-compose.yml) so a rebuild does not un-pair your TV. Which TV to talk to is
+# remembered in the browser, not in the container.
 # PATH gets ./adb so 'docker compose exec toolkit adb …' works for debugging.
 ENV HOME=/home/toolkit \
     PATH=/app/adb:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
-VOLUME ["/data", "/home/toolkit/.android"]
+VOLUME ["/home/toolkit/.android"]
 
 USER toolkit
 EXPOSE 8000

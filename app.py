@@ -6,7 +6,7 @@ import tempfile
 import threading
 import webbrowser
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 from werkzeug.utils import secure_filename
 
 import adb_core as core
@@ -18,6 +18,20 @@ def _connected_or_error():
     if core.state.connected and core.reconnect_check():
         return None
     return jsonify({"ok": False, "message": "Not connected. Connect to your TV first."}), 409
+
+
+@app.before_request
+def reject_cross_origin_mutation():
+    """There is no login, so a same-origin check is what stands between a random web page and
+    these routes: a form post needs no preflight and, on the body-free routes, no body at all."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    if (request.headers.get("Sec-Fetch-Site") or "").lower() in ("cross-site", "cross-origin"):
+        return jsonify({"ok": False, "message": "Blocked: cross-origin request."}), 403
+    origin = request.headers.get("Origin") or ""
+    if origin and origin != request.host_url.rstrip("/"):
+        return jsonify({"ok": False, "message": "Blocked: cross-origin request."}), 403
+    return None
 
 
 @app.get("/")
@@ -58,16 +72,6 @@ def api_inventory():
             "bloat": sum(1 for r in rows if r["verdict"] == "bloat" and r["state"] == "enabled"),
             "disabled": sum(1 for r in rows if r["state"] == "disabled"),
         },
-    })
-
-
-@app.get("/api/catalog")
-def api_catalog():
-    config = core.load_config()
-    return jsonify({
-        "last_ip": config.get("last_ip", ""),
-        "last_port": config.get("last_port", "5555"),
-        "last_pair_port": config.get("last_pair_port", ""),
     })
 
 
@@ -148,19 +152,142 @@ def api_install():
     if blocked:
         return blocked
     upload = request.files.get("file")
-    if not upload or not upload.filename:
-        return jsonify({"ok": False, "message": "No APK selected."}), 400
-    name = secure_filename(upload.filename) or "app.apk"
-    handle, path = tempfile.mkstemp(suffix=".apk")
-    os.close(handle)
-    try:
-        upload.save(path)
-        result = core.install_apk(path)
-    finally:
+    if upload and upload.filename:
+        name = secure_filename(upload.filename) or "app.apk"
+        handle, path = tempfile.mkstemp(suffix=".apk")
+        os.close(handle)
         try:
-            os.remove(path)
-        except OSError:
-            pass
+            upload.save(path)
+            result = core.install_apk(path, name)
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return jsonify(result), (200 if result["ok"] else 400)
+
+    url = str((request.get_json(silent=True) or {}).get("url", "")).strip()
+    if url:
+        # The ABI goes with it so a GitHub link resolves to the asset that runs on this box.
+        download = core.download_apk(url, core.device_abi())
+        if not download["ok"]:
+            return jsonify(download), 400
+        path = download["path"]
+        name = secure_filename(download["name"]) or "app.apk"
+        try:
+            result = core.install_apk(path, name)
+            if result["ok"]:
+                result["message"] = f"Installed {name} ({download['bytes'] / 1048576:.1f} MB)."
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return jsonify(result), (200 if result["ok"] else 400)
+
+    return jsonify({"ok": False, "message": "No APK selected."}), 400
+
+
+@app.get("/api/device")
+def api_device():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    return jsonify({"ok": True, "device": core.device_info(), "telemetry": core.telemetry()})
+
+
+@app.get("/api/screenshot")
+def api_screenshot():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    image, message = core.screenshot()
+    if image is None:
+        return jsonify({"ok": False, "message": message}), 400
+    return Response(image, mimetype="image/png", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/log")
+def api_log():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    return jsonify({"ok": True, "lines": core.read_log(request.args.get("lines", "200"))})
+
+
+@app.post("/api/key")
+def api_key():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    result = core.send_key(str((request.get_json(silent=True) or {}).get("key", "")))
+    return jsonify(result), (200 if result["ok"] else 400)
+
+
+@app.get("/api/app/<package>")
+def api_app_details(package):
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    result = core.app_details(package)
+    return jsonify(result), (200 if result["ok"] else 400)
+
+
+@app.post("/api/app/action")
+def api_app_action():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    payload = request.get_json(silent=True) or {}
+    result = core.app_action(str(payload.get("package", "")), str(payload.get("action", "")),
+                             confirm=bool(payload.get("confirm")))
+    return jsonify(result), (200 if result["ok"] else 400)
+
+
+@app.get("/api/launcher")
+def api_launcher():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    return jsonify({"ok": True, **core.launcher_options()})
+
+
+@app.post("/api/launcher/set")
+def api_launcher_set():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    component = str((request.get_json(silent=True) or {}).get("component", ""))
+    result = core.set_launcher(component)
+    return jsonify(result), (200 if result["ok"] else 400)
+
+
+@app.get("/api/tunables")
+def api_tunables():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    return jsonify({"ok": True, **core.tunable_values()})
+
+
+@app.post("/api/tunables")
+def api_tunable_set():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    payload = request.get_json(silent=True) or {}
+    result = core.set_tunable(str(payload.get("name", "")), payload.get("value", ""))
+    return jsonify(result), (200 if result["ok"] else 400)
+
+
+@app.post("/api/reboot")
+def api_reboot():
+    blocked = _connected_or_error()
+    if blocked:
+        return blocked
+    if not (request.get_json(silent=True) or {}).get("confirm"):
+        return jsonify({"ok": False, "message": "Reboot needs confirm=true."}), 400
+    result = core.reboot()
     return jsonify(result), (200 if result["ok"] else 400)
 
 

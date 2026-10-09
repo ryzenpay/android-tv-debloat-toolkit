@@ -19,11 +19,10 @@ services:
       TOOLKIT_PORT: "8000"
     volumes:
       # adb's keypair — the identity Pair & Connect registers with the TV. Lose it and you have to
-      # pair again with a fresh code from the Wireless debugging screen.
+      # pair again with a fresh code from the Wireless debugging screen. This is the only state the
+      # container keeps; the TV address you last used lives in your browser's localStorage.
       - adb-keys:/home/toolkit/.android
-      - toolkit-data:/data
     restart: unless-stopped
 
 volumes:
   adb-keys:
-  toolkit-data:

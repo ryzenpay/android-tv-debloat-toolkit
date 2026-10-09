@@ -1,10 +1,6 @@
 # Real ADB binary fetched by setup.py — not committed. The repo deliberately
-# ships no working ADB (see README: bundling adb.exe with an unsigned script trips
-# antivirus heuristics), and adb/adb is a Linux/macOS binary in a Windows repo.
+# ships no working ADB, and adb/adb is a Linux/macOS binary in a Windows repo.
 adb/adb
-
-# Last-used TV address, written by the toolkit
-config.json
 
 # Python bytecode from running the toolkit or setup scripts
 __pycache__/
