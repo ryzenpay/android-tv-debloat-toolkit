@@ -97,17 +97,8 @@ Two behaviours worth knowing before you press things:
 
 ## Who can reach the page
 
-There is **no authentication** — anyone who can open the page can change the TV. `TOOLKIT_HOST` is the whole access
-control: `0.0.0.0` (what the compose file ships) serves every interface, so anyone on your LAN can disable
-packages, install APKs, or reboot the box; `127.0.0.1` keeps it to the machine it runs on. It is the Flask
-development server with no TLS, so do not expose it beyond your own network.
-
-One consequence of `network_mode: host` measured on WSL2: the container shares the host's network stack, so its
-`adb` client attaches to the adb *server* already listening on `127.0.0.1:5037` — the one your user started — and
-only one process can hold that port. The keypair the TV actually authorised is therefore the host user's
-`~/.android/adbkey`, and the `adb-keys` volume stays empty. Pairing survives rebuilds and `docker compose down -v`,
-but back up the host key, not the volume. On a setup with no host adb server (Docker Desktop in a VM, or the bridge
-fallback above) the volume is what holds it, and losing it means pairing again with a fresh code.
+the server stores no data, everything is done through your browser.
+the server does have a tcp relay which is needed for adb
 
 ---
 
@@ -119,34 +110,6 @@ fallback above) the volume is what holds it, and losing it means pairing again w
 
 A connection that worked before and does not now is almost always Wireless debugging having switched off, or the TV
 having forgotten this computer: re-enable the toggle and pair again with a fresh code.
-
----
-
-## FAQ
-
-**Can the page be public while the TV stays private — can ADB run in the browser instead of on a server?**
-Half of it, and only over USB. A browser cannot open a raw TCP socket, so nothing written in JavaScript can reach
-the TV's wireless debugging port (`ip:5555`) directly, nor send the multicast queries discovery relies on. What
-browsers *can* do is [WebUSB](https://github.com/yujincheng08/WebAdb): claim the TV over a USB cable and speak the
-ADB protocol in the page, keypair included. Chrome and Edge do WebUSB; Safari on macOS and iOS does not implement
-it at all, so an iPhone or iPad can never be the client. For the wireless case there are two shapes that keep the
-TV off the internet: this design (a small server on your LAN is the ADB client — the page can live anywhere), or
-a static public page plus a ~50-line WebSocket↔TCP relay on the machine you are browsing from, which the browser
-reaches at `ws://127.0.0.1:<port>`. The relay still has to run somewhere that can see the TV — it shrinks the local
-process and moves the UI to a static host, it does not remove the process.
-
-**Will this work on my device?**
-Anything that accepts ADB over the network — TCL TVs, Onn boxes, Nvidia Shield, Chromecast with Google TV via
-Pair & Connect. Unsure? Connect and just read the app list without disabling anything.
-
-**Can I break the TV?**
-Risk comes from your device, not from a curated list: home/launcher, input method, accessibility, device admin,
-system-uid and overlay packages are classified *core* or *overlay* and refused unless you tick the override.
-Everything else states why it is flagged, and anything disabled here is re-enable-able from the same screen.
-
-**Is it maintained?**
-Not actively. It works as described and issues are read, but updates may be slow. The source is short — pull
-requests welcome.
 
 ---
 
